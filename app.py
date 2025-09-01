@@ -1,46 +1,32 @@
-# Overview (farbige Table)
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+
+st.set_page_config(page_title="Options Dashboard", page_icon="📊", layout="wide")
+
+st.title("📊 Options Market Dashboard")
+st.caption("Educational research only — no financial advice.")
+
+# Demo-Daten (später Sheet)
+data = [
+    {"Underlying":"ES/SPY","Bias":"Neutral","Recommendation":"Neutral","Gamma Flip":648,"Put Wall":640,"Call Wall":650,"Spot":645.05,"Score":-0.74,"Regime":"Short-Gamma (neg)"},
+    {"Underlying":"NQ/QQQ","Bias":"Neutral","Recommendation":"Neutral","Gamma Flip":573,"Put Wall":565,"Call Wall":580,"Spot":570.40,"Score":-0.65,"Regime":"Short-Gamma (neg)"},
+    {"Underlying":"GC/GLD","Bias":"Long","Recommendation":"Long","Gamma Flip":304,"Put Wall":305,"Call Wall":315,"Spot":318.07,"Score":2.00,"Regime":"Breakout Risk"},
+]
+df = pd.DataFrame(data)
+
 st.subheader("Overview")
-st.plotly_chart(make_overview_table(df), use_container_width=True)
+st.dataframe(df)
 
-st.markdown("---")
-
-# Detailbereich
 st.subheader("Asset Detail")
-left, right = st.columns([1,2])
+asset = st.selectbox("Select asset", df["Underlying"])
+row = df[df["Underlying"] == asset].iloc[0]
 
-with left:
-    asset = st.selectbox("Select asset", df["Underlying"].tolist())
-    row = df[df["Underlying"]==asset].iloc[0]
-
-    # Badges
-    st.markdown(
-        pill(row["Regime"], REGIME_COLORS.get(row["Regime"], "#9aa0a6")) + " " +
-        pill(row["Bias"],   BIAS_COLORS.get(row["Bias"], "#9aa0a6")) + " " +
-        pill(row["Recommendation"], REC_COLORS.get(row["Recommendation"], "#9aa0a6")),
-        unsafe_allow_html=True
-    )
-
-    st.write(
-        {
-            "Spot": round(row["Spot"],2),
-            "Gamma Flip": row["Gamma Flip"],
-            "Put Wall": row["Put Wall"],
-            "Call Wall": row["Call Wall"],
-        }
-    )
-
-    st.plotly_chart(score_gauge(row["Score"]), use_container_width=True)
-
-with right:
-    st.plotly_chart(levels_chart(row), use_container_width=True)
-
-st.markdown("**Methodology:** Flip-basiertes Regime; Walls nur als Extrem-Zonen (Crash/Breakout). Score = normierte Distanz Flip→Wall (−2…+2).")
-st.caption("Data source: demo; replace with Google Sheets via API for live data.")
-
-# ======== Hinweise für produktiven Einsatz ========
-with st.expander("🔧 Hinweise: Google Sheets anbinden"):
-    st.write("""
-    1) `pip install gspread google-auth`
-    2) Service Account JSON in `.streamlit/secrets.toml` eintragen
-    3) Daten laden und `df` ersetzen.
-    """)
+st.write({
+    "Spot": row["Spot"],
+    "Gamma Flip": row["Gamma Flip"],
+    "Put Wall": row["Put Wall"],
+    "Call Wall": row["Call Wall"],
+    "Score": row["Score"],
+    "Regime": row["Regime"],
+})
