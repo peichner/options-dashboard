@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import plotly.express as px
 from plotly.subplots import make_subplots
+from typing import Optional, List
 
 # ---------------- Page setup ----------------
 st.set_page_config(page_title="Market Dashboard", page_icon="📈", layout="wide")
@@ -23,7 +24,7 @@ def _authorize():
 @st.cache_data(ttl=300)  # 5 Minuten Cache
 def load_range(sheet_id: str, tab: str, cell_range: str,
                header_in_first_row: bool = True,
-               header_override: list[str] | None = None) -> pd.DataFrame:
+               header_override: Optional[List[str]] = None) -> pd.DataFrame:
     gc = _authorize()
     ws = gc.open_by_key(sheet_id).worksheet(tab)
     values = ws.get(cell_range)  # list[list]
@@ -40,9 +41,9 @@ def load_range(sheet_id: str, tab: str, cell_range: str,
 
     # numerische Spalten robust konvertieren und auf 2 Dezimal stellen
     for c in df.columns:
-        s = pd.Series(df[c]).astype(str)\
-             .str.replace("%", "", regex=False)\
-             .str.replace("\u00A0", "", regex=False)\
+        s = pd.Series(df[c]).astype(str) \
+             .str.replace("%", "", regex=False) \
+             .str.replace("\u00A0", "", regex=False) \
              .str.replace(",", ".", regex=False)
         num = pd.to_numeric(s, errors="coerce")
         df[c] = np.where(num.notna(), num.round(2), df[c])
@@ -56,7 +57,7 @@ col_l, col_r = st.columns([1,1])
 with col_l:
     if st.button("🔄 Aktualisieren"):
         load_range.clear()
-        st.experimental_rerun()
+        st.rerun()  # <— fix: statt st.experimental_rerun()
 with col_r:
     st.write(f"Zuletzt aktualisiert: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
 
