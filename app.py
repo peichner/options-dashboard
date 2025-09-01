@@ -1,49 +1,73 @@
-import streamlit as st
-import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
+/************************************************************
+ * Markt Dashboard Updater
+ * Kopiert aus Tab "Bias":
+ *  - A1:F10  → Abschnitt "Dashboard"
+ *  - A14:H22 → Abschnitt "Gex Data"
+ * und schreibt beides untereinander in das Sheet "Markt Dashboard".
+ ************************************************************/
 
-# ---------------- Page setup ----------------
-st.set_page_config(page_title="Market Dashboard", page_icon="📈", layout="wide")
-st.title("Market Dashboard")
+const CONFIG = {
+  sourceSheetName: 'Bias',
+  targetSheetName: 'Markt Dashboard',
+  ranges: [
+    { rangeA1: 'A1:F10',  title: 'Dashboard' },
+    { rangeA1: 'A14:H22', title: 'Gex Data' }
+  ],
+  padToCols: 8 // Zielbreite (größter Block hat 8 Spalten: A:H)
+};
 
-# ---------------- Google Sheets I/O ----------------
-def _authorize():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-    return gspread.authorize(creds)
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Dashboard')
+    .addItem('Markt Dashboard aktualisieren', 'updateMarktDashboard')
+    .addToUi();
+}
 
-@st.cache_data(ttl=30)
-def load_range(sheet_id: str, tab: str, cell_range: str = "A1:F10") -> pd.DataFrame:
-    gc = _authorize()
-    ws = gc.open_by_key(sheet_id).worksheet(tab)
-    values = ws.get(cell_range)  # Liste von Listen
-    if not values:
-        return pd.DataFrame()
-    header, rows = values[0], values[1:]
-    df = pd.DataFrame(rows, columns=header)
-    # Numerische Spalten (falls vorhanden) konvertieren
-    for c in df.columns:
-        df[c] = pd.to_numeric(df[c], errors="ignore")
-    return df
+function updateMarktDashboard() {
+  const ss   = SpreadsheetApp.getActive();
+  const src  = ss.getSheetByName(CONFIG.sourceSheetName);
+  if (!src) throw new Error(`Quelle nicht gefunden: ${CONFIG.sourceSheetName}`);
 
-SHEET_ID = st.secrets["SHEET_ID"]
-SHEET_TAB = st.secrets["SHEET_TAB"]
-df = load_range(SHEET_ID, SHEET_TAB, "A1:F10")
+  let dst = ss.getSheetByName(CONFIG.targetSheetName);
+  if (!dst) dst = ss.insertSheet(CONFIG.targetSheetName);
 
-if df.empty:
-    st.info("Keine Daten in A1:F10 gefunden.")
-else:
-    # Optionale einfache Farblogik für 'Bias' (Spalte F)
-    def bias_color(val: str):
-        if isinstance(val, str):
-            v = val.lower()
-            if "long" in v:   return "background-color:#16a34a;color:white"
-            if "short" in v:  return "background-color:#dc2626;color:white"
-            if "neutral" in v:return "background-color:#9aa0a6;color:white"
-        return ""
-    styled = df.style.applymap(bias_color, subset=[col for col in df.columns if col.lower()=="bias"])
+  // Daten sammeln & auf gemeinsame Spaltenbreite auffüllen
+  const pad = (rows, nCols) =>
+    rows.map(r => (r.length < nCols ? r.concat(Array(nCols - r.length).fill('')) : r));
 
-    st.dataframe(styled, use_container_width=True)
+  const all = [];
+  const headerRows = []; // für nachträgliche Formatierung (fett)
+  let currentRow = 1;
 
-st.caption("Live aus Google Sheets • Bereich: A1:F10 • Cache: 30s")
+  CONFIG.ranges.forEach((block, idx) => {
+    // Abschnittsüberschrift
+    const titleRow = [block.title].concat(Array(CONFIG.padToCols - 1).fill(''));
+    all.push(titleRow);
+    headerRows.push(currentRow);
+    currentRow += 1;
+
+    // Blockdaten
+    const values = src.getRange(block.rangeA1).getValues();
+    const padded = pad(values, CONFIG.padToCols);
+    all.push(...padded);
+    currentRow += padded.length;
+
+    // Leerzeile zwischen den Abschnitten (außer nach dem letzten)
+    if (idx < CONFIG.ranges.length - 1) {
+      all.push(Array(CONFIG.padToCols).fill(''));
+      currentRow += 1;
+    }
+  });
+
+  // Zielbereich leeren und neue Daten schreiben
+  dst.clearContents();
+  dst.getRange(1, 1, all.length, CONFIG.padToCols).setValues(all);
+
+  // Formatierung: Überschriften fett
+  headerRows.forEach(r =>
+    dst.getRange(r, 1, 1, CONFIG.padToCols).setFontWeight('bold')
+  );
+
+  // optional: Spaltenbreite automatisch anpassen
+  for (let c = 1; c <= CONFIG.padToCols; c++) dst.autoResizeColumn(c);
+}
