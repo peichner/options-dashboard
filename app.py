@@ -16,11 +16,12 @@ def _authorize():
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=30)
-def load_range(sheet_id: str, tab: str, cell_range: str, header_in_first_row: bool = True,
+def load_range(sheet_id: str, tab: str, cell_range: str,
+               header_in_first_row: bool = True,
                header_override: list[str] | None = None) -> pd.DataFrame:
     gc = _authorize()
     ws = gc.open_by_key(sheet_id).worksheet(tab)
-    values = ws.get(cell_range)  # list[list]
+    values = ws.get(cell_range)
     if not values:
         return pd.DataFrame()
 
@@ -31,20 +32,23 @@ def load_range(sheet_id: str, tab: str, cell_range: str, header_in_first_row: bo
         header = header_override or [f"Col{i+1}" for i in range(len(rows[0]))]
 
     df = pd.DataFrame(rows, columns=header)
+
     # numerische Spalten konvertieren
     for c in df.columns:
-        df[c] = pd.to_numeric(df[c].astype(str).str.replace("%","").str.replace(",","."), errors="ignore")
+        df[c] = pd.to_numeric(
+            df[c].astype(str).str.replace("%","").str.replace(",","."), 
+            errors="ignore"
+        )
     return df
 
 SHEET_ID  = st.secrets["SHEET_ID"]
-SHEET_TAB = st.secrets["SHEET_TAB"]  # "Bias"
+SHEET_TAB = st.secrets["SHEET_TAB"]  # z.B. "Bias"
 
 # ----------- Load both blocks -----------
 df_dash = load_range(SHEET_ID, SHEET_TAB, "A1:F10", header_in_first_row=True)
 
-# A14:H22 enthält in deinem Screenshot keine Header-Zeile -> Header setzen:
-gex_headers = ["Underlying", "Gamma Flip", "Put Wall", "Call Wall",
-               "Spot", "Regime", "Score", "Option Bias"]
+gex_headers = ["Underlying", "Spot", "Gamma Flip", "Put Wall", "Call Wall",
+               "Regime", "Score", "Option Bias"]
 df_gex  = load_range(SHEET_ID, SHEET_TAB, "A14:H22",
                      header_in_first_row=False, header_override=gex_headers)
 
@@ -66,7 +70,6 @@ if df_dash.empty and df_gex.empty:
 else:
     if not df_dash.empty:
         st.subheader("Dashboard")
-        # optionales Bias-Highlight, falls Spalte 'Bias' existiert
         cols = [c for c in df_dash.columns if c.lower() == "bias"]
         styled = df_dash.style.applymap(color_bias, subset=cols) if cols else df_dash
         st.dataframe(styled, use_container_width=True)
@@ -74,4 +77,9 @@ else:
     st.markdown("---")
 
     if not df_gex.empty:
-        st.su
+        st.subheader("Gex Data")
+        cols = [c for c in df_gex.columns if "bias" in c.lower()]
+        styled = df_gex.style.applymap(color_bias, subset=cols) if cols else df_gex
+        st.dataframe(styled, use_container_width=True)
+
+st.caption("Live aus Google Sheets • Bereiche: Bias!A1:F10 & Bias!A14:H22 • Cache: 30s")
