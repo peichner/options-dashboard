@@ -12,6 +12,13 @@ from plotly.subplots import make_subplots
 st.set_page_config(page_title="Market Dashboard", page_icon="📈", layout="wide")
 st.title("Market Dashboard")
 
+# ---- rerun helper (kompatibel alt/neu) ----
+def _rerun():
+    try:
+        st.rerun()
+    except AttributeError:
+        st.experimental_rerun()
+
 # ---------------- Google Sheets I/O ----------------
 def _authorize():
     scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
@@ -55,8 +62,8 @@ SHEET_TAB = st.secrets["SHEET_TAB"]  # z. B. "Bias"
 col_l, col_r = st.columns([1,1])
 with col_l:
     if st.button("🔄 Aktualisieren"):
-        load_range.clear()
-        st.experimental_rerun()
+        load_range.clear()        # nur den Funktion-Cache leeren
+        _rerun()
 with col_r:
     st.write(f"Zuletzt aktualisiert: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
 
@@ -125,7 +132,7 @@ if not df_gex.empty:
 
     fig1 = px.bar(
         df_scores, x="Score", y="Underlying", orientation="h",
-        text=df_scores["Score"].map(lambda x: f"{x:.2f}"),
+        text=df_scores["Score"].map(lambda x: f"{x:.2f}"}),
         color="Option Bias", color_discrete_map=color_map_bias
     )
     fig1.update_traces(textposition="outside", cliponaxis=False)
@@ -135,9 +142,7 @@ if not df_gex.empty:
     # --- 2) Price-Lanes: Put/Call Walls, Gamma Flip & Spot ---
     st.subheader("Price Lanes: Put/Call Walls, Gamma Flip & Spot")
 
-    # keep only valid rows
     lanes = df_gex[["Underlying","Spot","Put Wall","Call Wall","Gamma Flip"]].copy()
-    # **einzige funktionale Änderung**: sichere Zahlkonvertierung
     for c in ["Spot","Put Wall","Call Wall","Gamma Flip"]:
         lanes[c] = lanes[c].apply(to_num)
 
@@ -145,79 +150,82 @@ if not df_gex.empty:
     names = lanes["Underlying"].astype(str).tolist()
 
     n = len(lanes)
-    fig = make_subplots(
-        rows=n, cols=1,
-        shared_xaxes=False,
-        vertical_spacing=0.07,
-        subplot_titles=names
-    )
-
-    # Styles
-    lane_height = 0.18  # vertikale Dicke der Schiene
-    color_lane  = "#0f4c5c"
-    color_put   = "#2563eb"   # blau
-    color_call  = "#2563eb"
-    color_flip  = "#f59e0b"   # orange
-    color_spot  = "#0f4c5c"   # dunkelblau
-
-    for i, (_, row) in enumerate(lanes.iterrows(), start=1):
-        spot = row["Spot"]
-        pw   = row["Put Wall"]
-        cw   = row["Call Wall"]
-        gf   = row["Gamma Flip"]
-
-        # x-range mit Puffer
-        pts = [v for v in [spot, pw, cw, gf] if pd.notna(v)]
-        if not pts:
-            continue
-        xmin, xmax = min(pts), max(pts)
-        pad = (xmax - xmin) * 0.06 if xmax > xmin else (abs(xmax) + 1) * 0.06
-        xmin -= pad; xmax += pad
-
-        # Schiene als Rechteck (y 0..1 Dummy)
-        fig.add_shape(
-            type="rect", x0=xmin, x1=xmax, y0=0.5 - lane_height/2, y1=0.5 + lane_height/2,
-            line=dict(color=color_lane, width=2),
-            fillcolor=color_lane, opacity=0.8,
-            row=i, col=1
+    if n == 0:
+        st.info("Keine gültigen Lanes-Daten.")
+    else:
+        fig = make_subplots(
+            rows=n, cols=1,
+            shared_xaxes=False,
+            vertical_spacing=0.07,
+            subplot_titles=names
         )
 
-        # Vertikale Linien für Walls & Flip
-        if pd.notna(pw):
-            fig.add_vline(x=pw, line_color=color_put, line_width=3, row=i, col=1)
-            fig.add_annotation(x=pw, y=0.92, text="Put Wall", showarrow=False,
-                               font=dict(size=10), row=i, col=1)
-        if pd.notna(cw):
-            fig.add_vline(x=cw, line_color=color_call, line_width=3, row=i, col=1)
-            fig.add_annotation(x=cw, y=0.92, text="Call Wall", showarrow=False,
-                               font=dict(size=10), row=i, col=1)
-        if pd.notna(gf):
-            fig.add_vline(x=gf, line_color=color_flip, line_width=3,
-                          line_dash="dash", row=i, col=1)
-            fig.add_annotation(x=gf, y=0.08, text="Gamma Flip", showarrow=False,
-                               font=dict(size=10), row=i, col=1)
+        # Styles
+        lane_height = 0.18  # vertikale Dicke der Schiene
+        color_lane  = "#0f4c5c"
+        color_put   = "#2563eb"   # blau
+        color_call  = "#2563eb"
+        color_flip  = "#f59e0b"   # orange
+        color_spot  = "#0f4c5c"   # dunkelblau
 
-        # Spot als Pfeil (Marker)
-        if pd.notna(spot):
-            fig.add_scatter(
-                x=[spot], y=[0.5],
-                mode="markers",
-                marker=dict(symbol="triangle-down", size=16, line=dict(width=1, color="white"),
-                            color=color_spot),
-                showlegend=False, row=i, col=1
+        for i, (_, row) in enumerate(lanes.iterrows(), start=1):
+            spot = row["Spot"]
+            pw   = row["Put Wall"]
+            cw   = row["Call Wall"]
+            gf   = row["Gamma Flip"]
+
+            # x-range mit Puffer
+            pts = [v for v in [spot, pw, cw, gf] if pd.notna(v)]
+            if not pts:
+                continue
+            xmin, xmax = min(pts), max(pts)
+            pad = (xmax - xmin) * 0.06 if xmax > xmin else (abs(xmax) + 1) * 0.06
+            xmin -= pad; xmax += pad
+
+            # Schiene als Rechteck (y 0..1 Dummy)
+            fig.add_shape(
+                type="rect", x0=xmin, x1=xmax, y0=0.5 - lane_height/2, y1=0.5 + lane_height/2,
+                line=dict(color=color_lane, width=2),
+                fillcolor=color_lane, opacity=0.8,
+                row=i, col=1
             )
-            fig.add_annotation(x=spot, y=0.75, text=f"Spot {spot:.2f}",
-                               showarrow=False, font=dict(size=10), row=i, col=1)
 
-        # Achsenformatierung je Row
-        fig.update_xaxes(range=[xmin, xmax], tickformat=".2f", row=i, col=1)
-        fig.update_yaxes(visible=False, range=[0,1], row=i, col=1)
+            # Vertikale Linien
+            if pd.notna(pw):
+                fig.add_vline(x=pw, line_color=color_put, line_width=3, row=i, col=1)
+                fig.add_annotation(x=pw, y=0.92, text="Put Wall", showarrow=False,
+                                   font=dict(size=10), row=i, col=1)
+            if pd.notna(cw):
+                fig.add_vline(x=cw, line_color=color_call, line_width=3, row=i, col=1)
+                fig.add_annotation(x=cw, y=0.92, text="Call Wall", showarrow=False,
+                                   font=dict(size=10), row=i, col=1)
+            if pd.notna(gf):
+                fig.add_vline(x=gf, line_color=color_flip, line_width=3,
+                              line_dash="dash", row=i, col=1)
+                fig.add_annotation(x=gf, y=0.08, text="Gamma Flip", showarrow=False,
+                                   font=dict(size=10), row=i, col=1)
 
-    fig.update_layout(
-        height=120*n + 120,
-        margin=dict(l=20, r=20, t=40, b=10),
-        showlegend=False
-    )
-    st.plotly_chart(fig, use_container_width=True)
+            # Spot als Marker
+            if pd.notna(spot):
+                fig.add_scatter(
+                    x=[spot], y=[0.5],
+                    mode="markers",
+                    marker=dict(symbol="triangle-down", size=16,
+                                line=dict(width=1, color="white"),
+                                color=color_spot),
+                    showlegend=False, row=i, col=1
+                )
+                fig.add_annotation(x=spot, y=0.75, text=f"Spot {spot:.2f}",
+                                   showarrow=False, font=dict(size=10), row=i, col=1)
+
+            fig.update_xaxes(range=[xmin, xmax], tickformat=".2f", row=i, col=1)
+            fig.update_yaxes(visible=False, range=[0,1], row=i, col=1)
+
+        fig.update_layout(
+            height=120*n + 120,
+            margin=dict(l=20, r=20, t=40, b=10),
+            showlegend=False
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 st.caption("Live aus Google Sheets • Bereiche: Bias!A1:F10 & Bias!A15:H22 • Cache: 5 Min")
