@@ -65,7 +65,7 @@ df_dash = load_range(SHEET_ID, SHEET_TAB, "A1:F10", header_in_first_row=True)
 gex_headers = ["Underlying", "Spot", "Gamma Flip", "Put Wall", "Call Wall",
                "Regime", "Score", "Option Bias"]
 df_gex = load_range(
-    SHEET_ID, SHEET_TAB, "A15:H22",
+    SHEET_ID, SHEET_TAB, "A15:H22",  # A15, um doppelte Header zu vermeiden
     header_in_first_row=False, header_override=gex_headers
 )
 
@@ -123,4 +123,23 @@ if not df_gex.empty:
     )
     fig1.update_traces(textposition="outside", cliponaxis=False)
     fig1.update_layout(height=420, margin=dict(l=10,r=10,t=10,b=10), xaxis_tickformat=".2f")
-    st.plotly_chart(fi_
+    st.plotly_chart(fig1, use_container_width=True)
+
+    # --- 2) Walls & Gamma Flip vs. Spot (jede Zeile eigene Skala) ---
+    st.subheader("Walls & Gamma Flip vs. Spot (per Underlying)")
+    df_plot = df_gex[["Underlying","Spot","Put Wall","Call Wall","Gamma Flip"]].copy()
+
+    # Long-Format
+    lf = df_plot.melt(id_vars="Underlying", var_name="Level", value_name="Price").dropna()
+
+    # Facet: pro Underlying eine eigene Zeile; jede X-Achse unabhängig
+    fig3 = px.scatter(
+        lf, x="Price", y="Level", facet_row="Underlying",
+        color="Level", symbol="Level", height=120*lf["Underlying"].nunique()+120
+    )
+    fig3.update_xaxes(matches=None, tickformat=".2f")
+    fig3.update_traces(marker_size=10)
+    fig3.update_layout(showlegend=True, margin=dict(l=10,r=10,t=10,b=10))
+    st.plotly_chart(fig3, use_container_width=True)
+
+st.caption("Live aus Google Sheets • Bereiche: Bias!A1:F10 & Bias!A15:H22 • Cache: 5 Min")
