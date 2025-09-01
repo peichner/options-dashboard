@@ -87,6 +87,13 @@ def color_bias(val: str):
     if "neutral" in v:                  return "background-color:#9aa0a6;color:white"
     return ""
 
+def to_num(x):
+    """Robuste Zahlkonvertierung für EU-Format/Prozent/NBSP."""
+    try:
+        return float(str(x).replace("%","").replace("\u00A0","").replace(",", "."))
+    except Exception:
+        return np.nan
+
 # ---------------- Tabellen ----------------
 if df_dash.empty and df_gex.empty:
     st.info("Keine Daten gefunden.")
@@ -113,9 +120,8 @@ if not df_gex.empty:
     # --- 1) Option Bias Score (sorted, 2 Dezimal) ---
     st.subheader("Option Bias Score (sorted)")
     df_scores = df_gex[["Underlying","Score","Option Bias"]].copy()
-    df_scores = df_scores.dropna(subset=["Score"])
     df_scores["Score"] = pd.to_numeric(df_scores["Score"], errors="coerce").round(2)
-    df_scores = df_scores.sort_values("Score", ascending=False)
+    df_scores = df_scores.dropna(subset=["Score"]).sort_values("Score", ascending=False)
 
     fig1 = px.bar(
         df_scores, x="Score", y="Underlying", orientation="h",
@@ -131,8 +137,12 @@ if not df_gex.empty:
 
     # keep only valid rows
     lanes = df_gex[["Underlying","Spot","Put Wall","Call Wall","Gamma Flip"]].copy()
+    # **einzige funktionale Änderung**: sichere Zahlkonvertierung
+    for c in ["Spot","Put Wall","Call Wall","Gamma Flip"]:
+        lanes[c] = lanes[c].apply(to_num)
+
     lanes = lanes.dropna(how="all", subset=["Spot","Put Wall","Call Wall","Gamma Flip"])
-    names = lanes["Underlying"].tolist()
+    names = lanes["Underlying"].astype(str).tolist()
 
     n = len(lanes)
     fig = make_subplots(
@@ -151,13 +161,15 @@ if not df_gex.empty:
     color_spot  = "#0f4c5c"   # dunkelblau
 
     for i, (_, row) in enumerate(lanes.iterrows(), start=1):
-        spot = pd.to_numeric(row["Spot"], errors="coerce")
-        pw   = pd.to_numeric(row["Put Wall"], errors="coerce")
-        cw   = pd.to_numeric(row["Call Wall"], errors="coerce")
-        gf   = pd.to_numeric(row["Gamma Flip"], errors="coerce")
+        spot = row["Spot"]
+        pw   = row["Put Wall"]
+        cw   = row["Call Wall"]
+        gf   = row["Gamma Flip"]
 
         # x-range mit Puffer
         pts = [v for v in [spot, pw, cw, gf] if pd.notna(v)]
+        if not pts:
+            continue
         xmin, xmax = min(pts), max(pts)
         pad = (xmax - xmin) * 0.06 if xmax > xmin else (abs(xmax) + 1) * 0.06
         xmin -= pad; xmax += pad
