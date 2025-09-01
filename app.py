@@ -27,24 +27,76 @@ def _authorize():
 
 @st.cache_data(ttl=30)
 def load_sheet():
+    """Liest nur die Blöcke 'Overview' (oben) und 'GEX Data' ein, mergen via Underlying.
+       COT DATA / Retail Positioning werden ignoriert."""
     gc = _authorize()
     ws = gc.open_by_key(st.secrets["SHEET_ID"]).worksheet(st.secrets.get("SHEET_TAB","Dashboard"))
-    df = pd.DataFrame(ws.get_all_records())
-    # numerics
+
+    vals = ws.get_all_values()
+    raw = pd.DataFrame(vals)
+
+    def find_row(df, label):
+        m = (df == label).any(axis=1)
+        return int(m.idxmax()) if m.any() else None
+
+    # ----- Overview-Block finden -----
+    if not ((raw == "Underlying").any(axis=1)).any():
+        raise ValueError("Header 'Underlying' im Overview-Block nicht gefunden.")
+    hdr_over_idx = int(((raw == "Underlying").any(axis=1)).idxmax())
+
+    gex_tag_idx = find_row(raw, "GEX Data")
+    end_over_idx = (gex_tag_idx - 1) if gex_tag_idx is not None else len(raw) - 1
+
+    over_hdr = raw.iloc[hdr_over_idx].tolist()
+    over_df = raw.iloc[hdr_over_idx+1:end_over_idx+1].copy()
+    over_df.columns = over_hdr
+    over_df = over_df.dropna(how="all")
+
+    # ----- GEX Data-Block -----
+    if gex_tag_idx is not None:
+        gex_hdr = raw.iloc[gex_tag_idx+1].tolist()
+        cot_tag_idx = find_row(raw, "COT DATA")
+        end_gex_idx = (cot_tag_idx - 1) if cot_tag_idx is not None else len(raw) - 1
+        gex_df = raw.iloc[gex_tag_idx+2:end_gex_idx+1].copy()
+        gex_df.columns = gex_hdr
+        gex_df = gex_df.dropna(how="all")
+    else:
+        gex_df = pd.DataFrame(columns=["Underlying","Spot","Gamma Flip","Put Wall","Call Wall"])
+
+    # trim + types
+    for df_ in (over_df, gex_df):
+        df_.columns = [str(c).strip() for c in df_.columns]
+        if "Underlying" in df_.columns:
+            df_["Underlying"] = df_["Underlying"].astype(str).str.strip()
+
     for c in ["Spot","Gamma Flip","Put Wall","Call Wall","Score"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-    return df
+        if c in gex_df.columns: gex_df[c] = pd.to_numeric(gex_df[c], errors="coerce")
+        if c in over_df.columns: over_df[c] = pd.to_numeric(over_df[c], errors="coerce")
+
+    # nur relevante Overview-Spalten (ohne COT/Retail)
+    keep_over = [c for c in ["Underlying","Price Action","Option Bias Score","Regime","Bias","Recommendation","Score"] if c in over_df.columns]
+    over_df = over_df[keep_over]
+
+    # nur relevante GEX-Spalten
+    keep_gex = [c for c in ["Underlying","Spot","Gamma Flip","Put Wall","Call Wall"] if c in gex_df.columns]
+    gex_df = gex_df[keep_gex]
+
+    # Merge
+    df = pd.merge(over_df, gex_df, on="Underlying", how="left")
+
+    # Abschnitts-/Leerzeilen entfernen
+    bad_labels = {"GEX Data","COT DATA","Retail Positioning","","None","nan"}
+    df = df[~df["Underlying"].isin(bad_labels)]
+
+    return df.reset_index(drop=True)
 
 # ------------ Plot helpers ------------
 def make_overview_table(df: pd.DataFrame):
-    # nur gewünschte Spalten
     cols = ["Underlying","Price Action","Option Bias Score","Bias","Recommendation",
             "Spot","Gamma Flip","Put Wall","Call Wall","Score","Regime"]
     cols = [c for c in cols if c in df.columns]
     dfv = df[cols].copy()
 
-    # Farben für Bias/Rec/Regime
     bias_colors = [BIAS_COLORS.get(x,"#ffffff") for x in dfv.get("Bias", [""]*len(dfv))]
     rec_colors  = [REC_COLORS.get(x,"#ffffff") for x in dfv.get("Recommendation", [""]*len(dfv))]
     reg_colors  = [REGIME_COLORS.get(x,"#ffffff") for x in dfv.get("Regime", [""]*len(dfv))]
@@ -68,7 +120,7 @@ def levels_chart(row: pd.Series):
     if pd.notna(row.get("Gamma Flip")):
         fig.add_hline(y=row["Gamma Flip"], line_dash="dot", annotation_text=f"Gamma Flip {row['Gamma Flip']}")
     if pd.notna(row.get("Put Wall")):
-        fig.add_hline(y=row["Put Wall"], line_dash="dot", annotation_text=f"Put {row['Put Wall']}")
+        fig.add_hline(y=row["Put Wall"],  line_dash="dot", annotation_text=f"Put {row['Put Wall']}")
     if pd.notna(row.get("Call Wall")):
         fig.add_hline(y=row["Call Wall"], line_dash="dot", annotation_text=f"Call {row['Call Wall']}")
     if pd.notna(row.get("Spot")):
@@ -105,7 +157,7 @@ except Exception as e:
     st.error(f"Fehler beim Laden des Sheets: {e}")
     st.stop()
 
-# KPIs (Bias zählt nur, wenn Spalte existiert)
+# KPIs
 c1,c2,c3,c4 = st.columns(4)
 c1.metric("Assets", len(df))
 c2.metric("Long",    int((df["Bias"]=="Long").sum()) if "Bias" in df else 0)
@@ -141,6 +193,7 @@ if "Underlying" in overview_df.columns and not overview_df.empty:
         "Call Wall": row.get("Call Wall"),
         "Score": row.get("Score")
     })
+    left.plotly_chart(score_gauge(row.get("Score")), use_container_width=True)
     right.plotly_chart(levels_chart(row), use_container_width=True)
 
 st.caption("Live from Google Sheets (read-only). Cache TTL 30s – reload for instant refresh.")
